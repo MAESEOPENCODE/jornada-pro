@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Jornada — Control horario</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#16232F">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#16232F; --steel:#2E4A63; --steel-2:#3E6284; --amber:#E8A23A; --amber-d:#C6841F;
+  --mist:#EEF2F5; --paper:#FFFFFF; --line:#D7DEE3; --ok:#2F8F5B; --bad:#C24B3F; --txt:#1B2733; --txt-dim:#5C6B78;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px); box-sizing:border-box;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){ --mist:#0F1620; --paper:#182430; --line:#2B3A48; --txt:#E7EDF2; --txt-dim:#8FA1AF; --ink:#E7EDF2; }
+}
+:root[data-theme="dark"]{ --mist:#0F1620; --paper:#182430; --line:#2B3A48; --txt:#E7EDF2; --txt-dim:#8FA1AF; --ink:#E7EDF2; }
+*{box-sizing:border-box;}
+html,body{height:100%;margin:0;}
+body{background:var(--mist);color:var(--txt);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;overflow-x:hidden;}
+h1,h2,h3,.brand{font-family:'Archivo',sans-serif;}
+.mono{font-family:'IBM Plex Mono',monospace;}
+header{position:sticky;top:0;z-index:10;background:var(--ink);color:#fff;padding:14px 20px calc(14px + env(safe-area-inset-top,0px));display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.brand{font-size:20px;font-weight:800;letter-spacing:-.02em;display:flex;align-items:center;gap:8px;}
+.brand .dot{width:9px;height:9px;background:var(--amber);border-radius:50%;}
+.who{display:flex;gap:8px;align-items:center;font-size:13px;color:#B7C4CE;}
+select{background:#22323F;color:#fff;border:1px solid #33465490;border-radius:8px;padding:7px 10px;font-size:13px;}
+main{max-width:920px;margin:0 auto;padding:20px 16px 40px;}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:16px;}
+.clockwrap{display:flex;flex-direction:column;align-items:center;text-align:center;padding:28px 20px;}
+.bignum{font-size:clamp(40px,10vw,64px);font-weight:600;letter-spacing:-.01em;line-height:1;}
+.datestr{color:var(--txt-dim);font-size:14px;margin-top:4px;}
+.status-pill{display:inline-flex;align-items:center;gap:6px;font-size:13px;padding:5px 12px;border-radius:20px;margin-top:14px;background:var(--mist);border:1px solid var(--line);}
+.status-pill .dot{width:8px;height:8px;border-radius:50%;background:var(--txt-dim);}
+.status-pill.on .dot{background:var(--ok);}
+.status-pill.pause .dot{background:var(--amber);}
+.actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;justify-content:center;}
+button{font:inherit;cursor:pointer;border:none;border-radius:10px;padding:13px 22px;font-weight:700;font-size:15px;transition:transform .08s ease;}
+button:active{transform:scale(.97);}
+.btn-in{background:var(--ok);color:#fff;}
+.btn-out{background:var(--bad);color:#fff;}
+.btn-pause{background:var(--amber);color:#3A2600;}
+.btn-ghost{background:transparent;border:1px solid var(--line);color:var(--txt);}
+.btn-steel{background:var(--steel);color:#fff;}
+h3.section{font-size:14px;text-transform:none;color:var(--txt-dim);margin:0 0 12px;font-weight:700;}
+.log-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--line);font-size:14px;}
+.log-row:last-child{border-bottom:none;}
+.log-type{font-weight:700;}
+.tag-entrada{color:var(--ok);} .tag-salida{color:var(--bad);} .tag-pausa{color:var(--amber-d);}
+.week{display:flex;gap:8px;align-items:flex-end;height:90px;margin-top:6px;}
+.week .bar{flex:1;background:var(--steel-2);border-radius:6px 6px 2px 2px;position:relative;min-height:4px;}
+.week .lbl{font-size:11px;color:var(--txt-dim);text-align:center;margin-top:6px;}
+table{width:100%;border-collapse:collapse;font-size:14px;}
+th{text-align:left;color:var(--txt-dim);font-weight:600;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line);}
+td{padding:10px 8px;border-bottom:1px solid var(--line);}
+tr:last-child td{border-bottom:none;}
+.badge{font-size:12px;padding:3px 9px;border-radius:20px;font-weight:700;}
+.badge.on{background:#2F8F5B22;color:var(--ok);} .badge.off{background:#C24B3F22;color:var(--bad);} .badge.pause{background:#E8A23A22;color:var(--amber-d);}
+.rowflex{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+.hint{font-size:13px;color:var(--txt-dim);}
+.scroll-x{overflow-x:auto;}
+.toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom,0px));left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:10px;font-size:14px;opacity:0;pointer-events:none;transition:opacity .25s ease;}
+.toast.show{opacity:1;}
+footer{text-align:center;color:var(--txt-dim);font-size:12px;padding:10px 20px 30px;}
+</style>
+</head>
+<body>
+<div id="loginGate" style="position:fixed;inset:0;z-index:999;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;padding:20px;">
+  <div class="brand" style="color:#fff;"><span class="dot"></span>Jornada</div>
+  <input id="jUser" placeholder="Usuario o email" style="width:240px;padding:10px;border-radius:8px;border:1px solid #33465490;background:#22323F;color:#fff;">
+  <input id="jPass" type="password" placeholder="Contraseña" style="width:240px;padding:10px;border-radius:8px;border:1px solid #33465490;background:#22323F;color:#fff;">
+  <button class="btn-steel" onclick="_jornadaLogin()">Entrar</button>
+  <div class="hint" style="color:#8FA1AF;text-align:center;max-width:260px;">Acceso único de empresa (mismo proyecto Firebase que CMR Manager Pro). Luego cada empleado se elige en la lista.</div>
+</div>
+<header>
+  <div class="brand"><span class="dot"></span>Jornada</div>
+  <div class="who">
+    <select id="userSel"></select>
+    <select id="roleSel">
+      <option value="empleado">Vista empleado</option>
+      <option value="admin">Vista administrador</option>
+    </select>
+    <button class="btn-ghost" style="padding:6px 10px;font-size:12px;color:#fff;border-color:#33465490;" onclick="_jornadaLogout()">Salir</button>
+  </div>
+</header>
+<main id="app"></main>
+<footer>Demo local — los datos se guardan solo en este navegador.</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+const DB_KEY='jornada_db_v1';
+// Coordenadas del centro (demo: Palma del Río, Córdoba). Sustituye por las reales de cada nave.
+const CENTERS = {
+  'Almacén Palma del Río': {lat:37.6386,lng:-5.2865,radius:350},
+  'Cámara frío':           {lat:37.6386,lng:-5.2865,radius:350},
+  'Expediciones':          {lat:37.6386,lng:-5.2865,radius:350},
+  'Oficina logística':     {lat:37.6386,lng:-5.2865,radius:350},
+};
+function distMeters(lat1,lng1,lat2,lng2){
+  const R=6371000, toRad=x=>x*Math.PI/180;
+  const dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
+  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function getGeo(){
+  return new Promise(res=>{
+    if(!navigator.geolocation) return res(null);
+    navigator.geolocation.getCurrentPosition(
+      p=>res({lat:p.coords.latitude,lng:p.coords.longitude}),
+      ()=>res(null),
+      {timeout:5000}
+    );
+  });
+}
+const seed = ()=>({
+  employees:[
+    {id:'e1',name:'Marta Ruiz',centro:'Almacén Palma del Río',puesto:'Mozo de almacén',alta:'2022-03-14'},
+    {id:'e2',name:'Álvaro Gil',centro:'Cámara frío',puesto:'Operario de frío',alta:'2021-06-01'},
+    {id:'e3',name:'Yassin Bouzid',centro:'Expediciones',puesto:'Carretillero',alta:'2023-01-10'},
+    {id:'e4',name:'Laura Peña',centro:'Oficina logística',puesto:'Coordinadora de rutas',alta:'2019-09-02'},
+  ],
+  records:[],
+  signatures:[],
+  ausencias:[],
+  turnos:{},
+  bolsa:{},
+  documentos:[],
+  avisos:[],
+  gastos:[]
+});
+let db = JSON.parse(localStorage.getItem(DB_KEY)||'null') || seed();
+if(!db.signatures) db.signatures=[];
+if(!db.ausencias) db.ausencias=[];
+if(!db.turnos) db.turnos={};
+if(!db.bolsa) db.bolsa={};
+if(!db.documentos) db.documentos=[];
+if(!db.avisos) db.avisos=[];
+if(!db.gastos) db.gastos=[];
+const save = ()=>{ localStorage.setItem(DB_KEY, JSON.stringify(db)); if(window._jCloudSave) window._jCloudSave(db); };
+save();
+window._jGetDb = ()=>db;
+window._jSetDb = (nd)=>{
+  db = nd;
+  if(!db.signatures) db.signatures=[]; if(!db.ausencias) db.ausencias=[]; if(!db.turnos) db.turnos={};
+  if(!db.bolsa) db.bolsa={}; if(!db.documentos) db.documentos=[]; if(!db.avisos) db.avisos=[]; if(!db.gastos) db.gastos=[];
+  render();
+};
+
+const userSel=document.getElementById('userSel');
+const roleSel=document.getElementById('roleSel');
+db.employees.forEach(e=>{const o=document.createElement('option');o.value=e.id;o.textContent=e.name;userSel.appendChild(o);});
+let currentUser = db.employees[0].id;
+let role = 'empleado';
+userSel.onchange=()=>{currentUser=userSel.value;render();};
+roleSel.onchange=()=>{role=roleSel.value;render();};
+
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800);}
+function fmtTime(ts){return new Date(ts).toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});}
+function fmtDate(ts){return new Date(ts).toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});}
+function todayKey(ts=Date.now()){return new Date(ts).toISOString().slice(0,10);}
+
+function recordsFor(empId, dayKey){return db.records.filter(r=>r.empId===empId && todayKey(r.ts)===dayKey);}
+function lastStateFor(empId){
+  const recs = db.records.filter(r=>r.empId===empId).sort((a,b)=>a.ts-b.ts);
+  return recs.length? recs[recs.length-1].type : null;
+}
+function hoursWorked(empId, dayKey){
+  const recs = recordsFor(empId, dayKey).sort((a,b)=>a.ts-b.ts);
+  let total=0, openIn=null;
+  recs.forEach(r=>{
+    if(r.type==='entrada'){ openIn=r.ts; }
+    else if((r.type==='salida'||r.type==='pausa') && openIn!==null){ total += r.ts-openIn; openIn = r.type==='pausa'? null : null; }
+    else if(r.type==='reanuda'){ openIn=r.ts; }
+  });
+  if(openIn!==null) total += Date.now()-openIn;
+  return total;
+}
+function fmtDur(ms){
+  const h=Math.floor(ms/3600000), m=Math.floor((ms%3600000)/60000);
+  return h+'h '+String(m).padStart(2,'0')+'m';
+}
+async function clock(empId,type){
+  const emp = db.employees.find(e=>e.id===empId);
+  const center = CENTERS[emp.centro];
+  const geo = await getGeo();
+  let inRange = null;
+  if(geo && center){
+    inRange = distMeters(geo.lat,geo.lng,center.lat,center.lng) <= center.radius;
+  }
+  db.records.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,6), empId, type, ts:Date.now(), inRange});
+  save();
+  const labels={entrada:'Entrada registrada',salida:'Salida registrada',pausa:'Pausa iniciada',reanuda:'Jornada reanudada'};
+  toast(inRange===false? labels[type]+' · fuera del centro' : labels[type]);
+  render();
+}
+
+function weekBars(empId){
+  const days=[]; const now=new Date();
+  for(let i=6;i>=0;i--){ const d=new Date(now); d.setDate(now.getDate()-i); days.push(d); }
+  const maxMs = 9*3600000;
+  return days.map(d=>{
+    const key=todayKey(d.getTime());
+    const ms = key===todayKey()? hoursWorked(empId,key) : (recordsFor(empId,key).length? hoursWorked(empId,key): 0);
+    const pct = Math.min(100, (ms/maxMs)*100);
+    return {label:d.toLocaleDateString('es-ES',{weekday:'short'}).slice(0,1).toUpperCase()+d.toLocaleDateString('es-ES',{weekday:'short'}).slice(1,2), pct, ms};
+  });
+}
+
+function monthKey(ts=Date.now()){return new Date(ts).toISOString().slice(0,7);}
+function hoursForMonth(empId, mKey){
+  let total=0;
+  const [y,m]=mKey.split('-').map(Number);
+  const dim=new Date(y,m,0).getDate();
+  for(let d=1; d<=dim; d++){
+    const dayKey = mKey+'-'+String(d).padStart(2,'0');
+    if(recordsFor(empId,dayKey).length) total += hoursWorked(empId, dayKey);
+  }
+  return total;
+}
+function isSigned(empId, mKey){ return db.signatures.find(s=>s.empId===empId && s.month===mKey); }
+function signMonth(empId){
+  const mKey = monthKey();
+  if(isSigned(empId,mKey)) return;
+  const emp = db.employees.find(e=>e.id===empId);
+  const recs = db.records.filter(r=>r.empId===empId && monthKey(r.ts)===mKey);
+  const raw = recs.map(r=>r.id+r.ts+r.type).join('|');
+  let hash=0; for(let i=0;i<raw.length;i++){hash=(hash*31+raw.charCodeAt(i))>>>0;}
+  db.signatures.push({empId, month:mKey, name:emp.name, ts:Date.now(), hash:hash.toString(16)});
+  save();
+  toast('Registro firmado');
+  render();
+}
+function exportMonthlyCSV(){
+  const mKey = monthKey();
+  let csv='Empleado,Centro,Horas del mes,Firmado,Fecha firma,Hash\n';
+  db.employees.forEach(e=>{
+    const h = hoursForMonth(e.id, mKey);
+    const sig = isSigned(e.id, mKey);
+    csv+=`${e.name},${e.centro},${fmtDur(h)},${sig?'Sí':'No'},${sig?new Date(sig.ts).toLocaleString('es-ES'):''},${sig?sig.hash:''}\n`;
+  });
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download=`informe_${monthKey()}.csv`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function weekDates(){
+  const now=new Date(); const dow=(now.getDay()+6)%7;
+  const monday=new Date(now); monday.setDate(now.getDate()-dow);
+  const arr=[]; for(let i=0;i<7;i++){const d=new Date(monday); d.setDate(monday.getDate()+i); arr.push(d);}
+  return arr;
+}
+const TURNOS=['Mañana','Tarde','Noche','Libre'];
+function turnoKey(empId,dKey){return empId+'|'+dKey;}
+function getTurno(empId,dKey){return db.turnos[turnoKey(empId,dKey)]||'';}
+function setTurno(empId,dKey,val){
+  if(val) db.turnos[turnoKey(empId,dKey)]=val; else delete db.turnos[turnoKey(empId,dKey)];
+  save(); render();
+}
+function requestAusencia(empId){
+  const tipo=document.getElementById('ausTipo').value;
+  const desde=document.getElementById('ausDesde').value;
+  const hasta=document.getElementById('ausHasta').value;
+  const motivo=document.getElementById('ausMotivo').value.trim();
+  if(!desde||!hasta){toast('Indica las fechas');return;}
+  db.ausencias.push({id:'a'+Date.now(), empId, tipo, desde, hasta, motivo, estado:'pendiente', ts:Date.now()});
+  save(); toast('Solicitud enviada'); render();
+}
+function updateAusenciaEstado(id, estado){
+  const a=db.ausencias.find(x=>x.id===id); if(!a) return;
+  a.estado=estado; save(); toast(estado==='aprobada'?'Ausencia aprobada':'Ausencia rechazada'); render();
+}
+
+function weekTotalMs(empId){
+  return weekDates().reduce((s,d)=>{const dk=todayKey(d.getTime()); return s+(recordsFor(empId,dk).length?hoursWorked(empId,dk):0);},0);
+}
+function extraWeekMs(empId){ return Math.max(0, weekTotalMs(empId) - 40*3600000); }
+function bolsaTotal(empId){ return extraWeekMs(empId) + (db.bolsa[empId]||0); }
+function ajustarBolsa(empId, deltaHoras){
+  db.bolsa[empId] = (db.bolsa[empId]||0) + deltaHoras*3600000;
+  save(); render();
+}
+function addDocumento(empId){
+  const inp=document.getElementById('docNombre_'+empId);
+  const nombre = inp.value.trim();
+  if(!nombre){toast('Escribe un nombre de documento');return;}
+  db.documentos.push({id:'d'+Date.now(), empId, nombre, ts:Date.now()});
+  save(); toast('Documento añadido'); render();
+}
+
+function addAviso(){
+  const t=document.getElementById('avisoTitulo').value.trim();
+  const x=document.getElementById('avisoTexto').value.trim();
+  if(!t){toast('Escribe un título');return;}
+  db.avisos.unshift({id:'v'+Date.now(), titulo:t, texto:x, ts:Date.now()});
+  save(); toast('Aviso publicado'); render();
+}
+function addGasto(empId){
+  const concepto=document.getElementById('gastoConcepto_'+empId).value.trim();
+  const importe=parseFloat(document.getElementById('gastoImporte_'+empId).value);
+  const fecha=document.getElementById('gastoFecha_'+empId).value || todayKey();
+  if(!concepto||!importe){toast('Completa concepto e importe');return;}
+  db.gastos.push({id:'g'+Date.now(), empId, concepto, importe, fecha, estado:'pendiente', ts:Date.now()});
+  save(); toast('Gasto enviado'); render();
+}
+function updateGastoEstado(id, estado){
+  const g=db.gastos.find(x=>x.id===id); if(!g) return;
+  g.estado=estado; save(); render();
+}
+
+function employeeView(empId){
+  const state = lastStateFor(empId);
+  const isIn = state==='entrada' || state==='reanuda';
+  const isPaused = state==='pausa';
+  const today = todayKey();
+  const worked = hoursWorked(empId, today);
+  const recs = recordsFor(empId, today).sort((a,b)=>b.ts-a.ts);
+  const bars = weekBars(empId);
+
+  let statusLabel = 'Sin fichar', statusClass='';
+  if(isIn){statusLabel='En jornada';statusClass='on';}
+  if(isPaused){statusLabel='En pausa';statusClass='pause';}
+
+  let actionsHtml='';
+  if(!isIn && !isPaused){
+    actionsHtml = `<button class="btn-in" onclick="clock('${empId}','entrada')">Fichar entrada</button>`;
+  } else if(isIn){
+    actionsHtml = `<button class="btn-pause" onclick="clock('${empId}','pausa')">Iniciar pausa</button>
+                   <button class="btn-out" onclick="clock('${empId}','salida')">Fichar salida</button>`;
+  } else if(isPaused){
+    actionsHtml = `<button class="btn-in" onclick="clock('${empId}','reanuda')">Reanudar</button>
+                   <button class="btn-out" onclick="clock('${empId}','salida')">Fichar salida</button>`;
+  }
+
+  return `
+  <div class="card clockwrap">
+    <div class="bignum mono" id="liveClock">--:--:--</div>
+    <div class="datestr">${fmtDate(Date.now())}</div>
+    <div class="status-pill ${statusClass}"><span class="dot"></span>${statusLabel} · ${fmtDur(worked)} hoy</div>
+    <div class="actions">${actionsHtml}</div>
+  </div>
+  <div class="card">
+    <h3 class="section">Esta semana</h3>
+    <div class="week">${bars.map(b=>`<div style="display:flex;flex-direction:column;justify-content:flex-end;flex:1;height:100%;">
+        <div class="bar" style="height:${Math.max(6,b.pct)}%" title="${fmtDur(b.ms)}"></div>
+        <div class="lbl">${b.label}</div></div>`).join('')}</div>
+  </div>
+  <div class="card">
+    <h3 class="section">Tablón de avisos</h3>
+    ${db.avisos.length? db.avisos.slice(0,5).map(a=>`<div class="log-row" style="flex-direction:column;align-items:flex-start;gap:2px;"><strong style="font-size:14px;">${a.titulo}</strong><span class="hint">${a.texto}</span><span class="hint mono">${new Date(a.ts).toLocaleDateString('es-ES')}</span></div>`).join('') : '<div class="hint">Sin avisos.</div>'}
+  </div>
+  <div class="card">
+    <h3 class="section">Gastos</h3>
+    <div class="rowflex" style="gap:8px;">
+      <input id="gastoConcepto_${empId}" placeholder="Concepto (ej. peaje, comida)" style="flex:2;min-width:140px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+      <input id="gastoImporte_${empId}" type="number" step="0.01" placeholder="€" style="flex:1;min-width:70px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+      <input id="gastoFecha_${empId}" type="date" style="flex:1;min-width:130px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+    </div>
+    <button class="btn-steel" style="margin-top:10px;" onclick="addGasto('${empId}')">Enviar gasto</button>
+    <div style="margin-top:12px;">
+      ${db.gastos.filter(g=>g.empId===empId).sort((a,b)=>b.ts-a.ts).map(g=>`<div class="log-row"><span>${g.concepto} · ${g.importe.toFixed(2)}€</span><span class="badge ${g.estado==='aprobado'?'on':g.estado==='rechazado'?'off':'pause'}">${g.estado}</span></div>`).join('') || '<div class="hint">Sin gastos registrados.</div>'}
+    </div>
+  </div>
+  <div class="card">
+    <div class="rowflex">
+      <div><h3 class="section" style="margin-bottom:2px;">Bolsa de horas extra</h3><div class="hint">Estándar 40h/semana · esta semana: ${fmtDur(weekTotalMs(empId))}</div></div>
+      <div class="bignum mono" style="font-size:26px;">${fmtDur(bolsaTotal(empId))}</div>
+    </div>
+  </div>
+  <div class="card">
+    <h3 class="section">Tu ficha</h3>
+    <div class="log-row"><span>Puesto</span><span>${db.employees.find(e=>e.id===empId).puesto}</span></div>
+    <div class="log-row"><span>Centro</span><span>${db.employees.find(e=>e.id===empId).centro}</span></div>
+    <div class="log-row"><span>Alta</span><span class="mono">${db.employees.find(e=>e.id===empId).alta}</span></div>
+    <h3 class="section" style="margin-top:14px;">Documentos</h3>
+    ${db.documentos.filter(d=>d.empId===empId).length? db.documentos.filter(d=>d.empId===empId).map(d=>`<div class="log-row"><span>📄 ${d.nombre}</span><span class="hint">${new Date(d.ts).toLocaleDateString('es-ES')}</span></div>`).join('') : '<div class="hint">Sin documentos.</div>'}
+  </div>
+  <div class="card">
+    <h3 class="section">Tu turno esta semana</h3>
+    <div class="week" style="height:auto;align-items:stretch;">
+      ${weekDates().map(d=>{const dk=todayKey(d.getTime()); const t=getTurno(empId,dk)||'—';
+        return `<div style="flex:1;text-align:center;"><div class="lbl" style="margin:0 0 6px;">${d.toLocaleDateString('es-ES',{weekday:'short'})}</div><div class="badge ${t==='Libre'?'off':t?'on':''}" style="display:block;">${t}</div></div>`;
+      }).join('')}
+    </div>
+  </div>
+  <div class="card">
+    <h3 class="section">Solicitar ausencia</h3>
+    <div class="rowflex" style="gap:8px;align-items:flex-end;">
+      <select id="ausTipo" style="flex:1;min-width:120px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+        <option>Vacaciones</option><option>Baja médica</option><option>Asuntos propios</option>
+      </select>
+      <input id="ausDesde" type="date" style="flex:1;min-width:130px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+      <input id="ausHasta" type="date" style="flex:1;min-width:130px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+    </div>
+    <input id="ausMotivo" placeholder="Motivo (opcional)" style="width:100%;margin-top:8px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+    <button class="btn-steel" style="margin-top:10px;" onclick="requestAusencia('${empId}')">Enviar solicitud</button>
+    <div style="margin-top:14px;">
+      ${db.ausencias.filter(a=>a.empId===empId).sort((a,b)=>b.ts-a.ts).map(a=>`<div class="log-row"><span>${a.tipo} · ${a.desde} → ${a.hasta}</span><span class="badge ${a.estado==='aprobada'?'on':a.estado==='rechazada'?'off':'pause'}">${a.estado}</span></div>`).join('') || '<div class="hint">Sin solicitudes.</div>'}
+    </div>
+  </div>
+  <div class="card">
+    <h3 class="section">Registro de hoy</h3>
+    ${recs.length? recs.map(r=>`<div class="log-row"><span class="log-type tag-${r.type==='reanuda'?'entrada':r.type}">${({entrada:'Entrada',salida:'Salida',pausa:'Pausa',reanuda:'Reanudación'})[r.type]}</span><span class="mono">${fmtTime(r.ts)}${r.inRange===false?' <span style="color:var(--bad)">· fuera del centro</span>':''}</span></div>`).join('')
+      : `<div class="hint">Todavía no has fichado hoy.</div>`}
+  </div>`;
+}
+
+function adminView(){
+  const today = todayKey();
+  const rows = db.employees.map(e=>{
+    const state = lastStateFor(e.id);
+    let badge = '<span class="badge off">Sin fichar</span>';
+    if(state==='entrada'||state==='reanuda') badge='<span class="badge on">En jornada</span>';
+    if(state==='pausa') badge='<span class="badge pause">En pausa</span>';
+    const worked = hoursWorked(e.id, today);
+    return {e, badge, worked};
+  });
+  const allToday = db.records.filter(r=>todayKey(r.ts)===today).sort((a,b)=>b.ts-a.ts).slice(0,10);
+  const totalTeam = rows.reduce((s,r)=>s+r.worked,0);
+
+  return `
+  <div class="card">
+    <div class="rowflex">
+      <div><h3 class="section" style="margin-bottom:2px;">Equipo hoy</h3><div class="hint">${rows.length} empleados · ${fmtDur(totalTeam)} acumuladas</div></div>
+      <button class="btn-steel" onclick="exportCSV()">Exportar CSV</button>
+    </div>
+  </div>
+  <div class="card scroll-x">
+    <table>
+      <tr><th>Empleado</th><th>Centro</th><th>Estado</th><th>Horas hoy</th></tr>
+      ${rows.map(r=>`<tr><td>${r.e.name}</td><td class="hint">${r.e.centro}</td><td>${r.badge}</td><td class="mono">${fmtDur(r.worked)}</td></tr>`).join('')}
+    </table>
+  </div>
+  <div class="card">
+    <h3 class="section">Tablón de avisos</h3>
+    <input id="avisoTitulo" placeholder="Título" style="width:100%;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px;">
+    <input id="avisoTexto" placeholder="Mensaje" style="width:100%;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+    <button class="btn-steel" style="margin-top:10px;" onclick="addAviso()">Publicar</button>
+    <div style="margin-top:12px;">
+      ${db.avisos.slice(0,4).map(a=>`<div class="log-row"><span>${a.titulo}</span><span class="hint mono">${new Date(a.ts).toLocaleDateString('es-ES')}</span></div>`).join('') || '<div class="hint">Sin avisos.</div>'}
+    </div>
+  </div>
+  <div class="card">
+    <h3 class="section">Gastos pendientes</h3>
+    ${db.gastos.filter(g=>g.estado==='pendiente').length? db.gastos.filter(g=>g.estado==='pendiente').map(g=>{
+      const emp=db.employees.find(e=>e.id===g.empId);
+      return `<div class="log-row"><span>${emp?emp.name:''} · ${g.concepto} · <span class="mono">${g.importe.toFixed(2)}€</span></span>
+        <span style="display:flex;gap:6px;">
+          <button class="btn-in" style="padding:6px 12px;font-size:12px;" onclick="updateGastoEstado('${g.id}','aprobado')">Aprobar</button>
+          <button class="btn-out" style="padding:6px 12px;font-size:12px;" onclick="updateGastoEstado('${g.id}','rechazado')">Rechazar</button>
+        </span></div>`;
+    }).join('') : '<div class="hint">Sin gastos pendientes.</div>'}
+  </div>
+  <div class="card">
+    <h3 class="section">Horas trabajadas hoy por centro</h3>
+    <div class="week">${(()=>{
+      const byC={}; db.employees.forEach(e=>{byC[e.centro]=(byC[e.centro]||0)+hoursWorked(e.id,today);});
+      const max=Math.max(1,...Object.values(byC));
+      return Object.entries(byC).map(([c,ms])=>`<div style="display:flex;flex-direction:column;justify-content:flex-end;flex:1;height:100%;">
+        <div class="bar" style="height:${Math.max(6,(ms/max)*100)}%" title="${fmtDur(ms)}"></div>
+        <div class="lbl">${c.split(' ')[0]}</div></div>`).join('');
+    })()}</div>
+  </div>
+  <div class="card scroll-x">
+    <h3 class="section">Bolsa de horas extra</h3>
+    <table>
+      <tr><th>Empleado</th><th>Semana</th><th>Extra semana</th><th>Bolsa</th><th></th></tr>
+      ${db.employees.map(e=>`<tr><td>${e.name}</td><td class="mono">${fmtDur(weekTotalMs(e.id))}</td><td class="mono">${fmtDur(extraWeekMs(e.id))}</td><td class="mono">${fmtDur(bolsaTotal(e.id))}</td>
+        <td><button class="btn-ghost" style="padding:4px 9px;font-size:12px;" onclick="ajustarBolsa('${e.id}',-1)">-1h</button>
+            <button class="btn-ghost" style="padding:4px 9px;font-size:12px;" onclick="ajustarBolsa('${e.id}',1)">+1h</button></td></tr>`).join('')}
+    </table>
+  </div>
+  <div class="card">
+    <h3 class="section">Documentos por empleado</h3>
+    ${db.employees.map(e=>`<div style="margin-bottom:10px;">
+      <div class="rowflex" style="gap:6px;">
+        <strong style="font-size:13px;">${e.name}</strong>
+      </div>
+      <div class="rowflex" style="gap:6px;margin-top:4px;">
+        <input id="docNombre_${e.id}" placeholder="Nombre del documento" style="flex:1;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:13px;">
+        <button class="btn-steel" style="padding:6px 12px;font-size:12px;" onclick="addDocumento('${e.id}')">Añadir</button>
+      </div>
+      ${db.documentos.filter(d=>d.empId===e.id).map(d=>`<div class="log-row" style="font-size:13px;"><span>📄 ${d.nombre}</span><span class="hint">${new Date(d.ts).toLocaleDateString('es-ES')}</span></div>`).join('')}
+    </div>`).join('')}
+  </div>
+  <div class="card scroll-x">
+    <h3 class="section">Turnos de la semana</h3>
+    <table>
+      <tr><th>Empleado</th>${weekDates().map(d=>`<th>${d.toLocaleDateString('es-ES',{weekday:'short'})}</th>`).join('')}</tr>
+      ${db.employees.map(e=>`<tr><td>${e.name}</td>${weekDates().map(d=>{const dk=todayKey(d.getTime()); const cur=getTurno(e.id,dk);
+        return `<td><select onchange="setTurno('${e.id}','${dk}',this.value)" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px;font-size:12px;">
+          <option value="" ${!cur?'selected':''}>—</option>
+          ${TURNOS.map(t=>`<option value="${t}" ${cur===t?'selected':''}>${t}</option>`).join('')}
+        </select></td>`;}).join('')}</tr>`).join('')}
+    </table>
+  </div>
+  <div class="card">
+    <h3 class="section">Ausencias pendientes</h3>
+    ${db.ausencias.filter(a=>a.estado==='pendiente').length? db.ausencias.filter(a=>a.estado==='pendiente').map(a=>{
+      const emp=db.employees.find(e=>e.id===a.empId);
+      return `<div class="log-row" style="align-items:center;">
+        <span>${emp?emp.name:''} · ${a.tipo} · ${a.desde} → ${a.hasta}${a.motivo?' · '+a.motivo:''}</span>
+        <span style="display:flex;gap:6px;">
+          <button class="btn-in" style="padding:6px 12px;font-size:12px;" onclick="updateAusenciaEstado('${a.id}','aprobada')">Aprobar</button>
+          <button class="btn-out" style="padding:6px 12px;font-size:12px;" onclick="updateAusenciaEstado('${a.id}','rechazada')">Rechazar</button>
+        </span></div>`;
+    }).join('') : '<div class="hint">Sin solicitudes pendientes.</div>'}
+  </div>
+  <div class="card scroll-x">
+    <div class="rowflex">
+      <h3 class="section" style="margin:0;">Informe mensual — cumplimiento RDL 8/2019</h3>
+      <button class="btn-ghost" onclick="exportMonthlyCSV()">Exportar informe</button>
+    </div>
+    <table style="margin-top:10px;">
+      <tr><th>Empleado</th><th>Horas del mes</th><th>Firma</th></tr>
+      ${db.employees.map(e=>{
+        const mKey=monthKey(); const h=hoursForMonth(e.id,mKey); const sig=isSigned(e.id,mKey);
+        return `<tr><td>${e.name}</td><td class="mono">${fmtDur(h)}</td><td>${sig?`<span class="badge on">Firmado ${new Date(sig.ts).toLocaleDateString('es-ES')}</span>`:`<button class="btn-steel" style="padding:6px 12px;font-size:13px;" onclick="signMonth('${e.id}')">Firmar</button>`}</td></tr>`;
+      }).join('')}
+    </table>
+  </div>
+  <div class="card">
+    <h3 class="section">Actividad reciente</h3>
+    ${allToday.length? allToday.map(r=>{
+      const emp = db.employees.find(x=>x.id===r.empId);
+      return `<div class="log-row"><span>${emp?emp.name:'—'} · <span class="log-type tag-${r.type==='reanuda'?'entrada':r.type}">${({entrada:'Entrada',salida:'Salida',pausa:'Pausa',reanuda:'Reanuda'})[r.type]}</span></span><span class="mono">${fmtTime(r.ts)}</span></div>`;
+    }).join('') : `<div class="hint">Sin fichajes todavía hoy.</div>`}
+  </div>`;
+}
+
+function exportCSV(){
+  let csv='Empleado,Tipo,Fecha,Hora\n';
+  db.records.slice().sort((a,b)=>a.ts-b.ts).forEach(r=>{
+    const emp=db.employees.find(e=>e.id===r.empId);
+    csv+=`${emp?emp.name:''},${r.type},${todayKey(r.ts)},${fmtTime(r.ts)}\n`;
+  });
+  const blob=new Blob([csv],{type:'text/csv'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); a.href=url; a.download='registro_horario.csv'; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function render(){
+  document.getElementById('app').innerHTML = role==='admin'? adminView() : employeeView(currentUser);
+}
+setInterval(()=>{
+  const el=document.getElementById('liveClock');
+  if(el) el.textContent = new Date().toLocaleTimeString('es-ES');
+},1000);
+render();
+</script>
+
+<!-- ── Firebase (proyecto propio: jornada-app-3548e) ── -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCsXyv5_aZmH_F3fS7h-se5KnulgvUyJGs",
+  authDomain: "jornada-app-3548e.firebaseapp.com",
+  projectId: "jornada-app-3548e",
+  storageBucket: "jornada-app-3548e.firebasestorage.app",
+  messagingSenderId: "232745922051",
+  appId: "1:232745922051:web:9aebebfc0c188883686836"
+};
+const fbApp = initializeApp(firebaseConfig, 'jornada');
+const fdb = getFirestore(fbApp);
+const fauth = getAuth(fbApp);
+let docRef = null, applyingRemote = false;
+
+window._jornadaLogin = async function(){
+  const raw=(document.getElementById('jUser').value||'').trim();
+  const pass=document.getElementById('jPass').value||'';
+  if(!raw||!pass) return;
+  const email = raw.includes('@')? raw : raw+'@jornada.app';
+  try{ await signInWithEmailAndPassword(fauth, email, pass); }
+  catch(e){
+    try{ await createUserWithEmailAndPassword(fauth, email, pass); }
+    catch(e2){ alert('Usuario o contraseña incorrectos'); }
+  }
+};
+window._jornadaLogout = ()=>signOut(fauth);
+
+onAuthStateChanged(fauth, user=>{
+  if(!user){ document.getElementById('loginGate').style.display='flex'; return; }
+  document.getElementById('loginGate').style.display='none';
+  docRef = doc(fdb,'users',user.uid,'jornada','data');
+  onSnapshot(docRef, snap=>{
+    if(snap.exists()){ applyingRemote=true; window._jSetDb(snap.data()); applyingRemote=false; }
+    else { setDoc(docRef, window._jGetDb()); }
+  });
+});
+window._jCloudSave = (data)=>{ if(docRef && !applyingRemote) setDoc(docRef, data); };
+</script>
+
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
