@@ -10,6 +10,9 @@
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 :root{
   --ink:#16232F; --steel:#2E4A63; --steel-2:#3E6284; --amber:#E8A23A; --amber-d:#C6841F;
@@ -85,6 +88,7 @@ footer{text-align:center;color:var(--txt-dim);font-size:12px;padding:10px 20px 3
       <option value="empleado">Vista empleado</option>
       <option value="admin">Vista administrador</option>
     </select>
+    <button class="btn-ghost" style="padding:6px 10px;font-size:12px;color:#fff;border-color:#33465490;" onclick="pedirNotificaciones()">🔔</button>
     <button class="btn-ghost" style="padding:6px 10px;font-size:12px;color:#fff;border-color:#33465490;" onclick="_jornadaLogout()">Salir</button>
   </div>
 </header>
@@ -131,7 +135,9 @@ const seed = ()=>({
   bolsa:{},
   documentos:[],
   avisos:[],
-  gastos:[]
+  gastos:[],
+  centrosConfig:{},
+  vacacionesConfig:{}
 });
 let db = JSON.parse(localStorage.getItem(DB_KEY)||'null') || seed();
 if(!db.signatures) db.signatures=[];
@@ -141,6 +147,8 @@ if(!db.bolsa) db.bolsa={};
 if(!db.documentos) db.documentos=[];
 if(!db.avisos) db.avisos=[];
 if(!db.gastos) db.gastos=[];
+if(!db.centrosConfig) db.centrosConfig={};
+if(!db.vacacionesConfig) db.vacacionesConfig={};
 const save = ()=>{ localStorage.setItem(DB_KEY, JSON.stringify(db)); if(window._jCloudSave) window._jCloudSave(db); };
 save();
 window._jGetDb = ()=>db;
@@ -148,6 +156,7 @@ window._jSetDb = (nd)=>{
   db = nd;
   if(!db.signatures) db.signatures=[]; if(!db.ausencias) db.ausencias=[]; if(!db.turnos) db.turnos={};
   if(!db.bolsa) db.bolsa={}; if(!db.documentos) db.documentos=[]; if(!db.avisos) db.avisos=[]; if(!db.gastos) db.gastos=[];
+  if(!db.centrosConfig) db.centrosConfig={}; if(!db.vacacionesConfig) db.vacacionesConfig={};
   render();
 };
 
@@ -184,6 +193,31 @@ function fmtDur(ms){
   const h=Math.floor(ms/3600000), m=Math.floor((ms%3600000)/60000);
   return h+'h '+String(m).padStart(2,'0')+'m';
 }
+function notify(title, body){
+  if(typeof Notification!=='undefined' && Notification.permission==='granted'){
+    try{ new Notification(title,{body, icon:'icon-192.png'}); }catch(e){}
+  }
+}
+function pedirNotificaciones(){
+  if(typeof Notification==='undefined'){ toast('Tu navegador no soporta notificaciones'); return; }
+  Notification.requestPermission().then(p=>{
+    toast(p==='granted'?'Notificaciones activadas':'Notificaciones no concedidas');
+  });
+}
+let _remindedToday = null;
+setInterval(()=>{
+  if(role!=='empleado') return;
+  const now=new Date();
+  if(now.getHours()<21) return;
+  const key = todayKey()+'_'+currentUser;
+  if(_remindedToday===key) return;
+  const state = lastStateFor(currentUser);
+  if(state==='entrada'||state==='reanuda'){
+    notify('Jornada sin cerrar', 'Parece que todavía no has fichado tu salida de hoy.');
+    _remindedToday = key;
+  }
+},60000);
+
 async function clock(empId,type){
   const emp = db.employees.find(e=>e.id===empId);
   const center = CENTERS[emp.centro];
@@ -192,11 +226,34 @@ async function clock(empId,type){
   if(geo && center){
     inRange = distMeters(geo.lat,geo.lng,center.lat,center.lng) <= center.radius;
   }
+  if(inRange===false){
+    const seguir = confirm('Pareces estar fuera de tu centro de trabajo ('+emp.centro+'). ¿Fichar de todas formas?');
+    if(!seguir) return;
+  }
   db.records.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,6), empId, type, ts:Date.now(), inRange});
   save();
   const labels={entrada:'Entrada registrada',salida:'Salida registrada',pausa:'Pausa iniciada',reanuda:'Jornada reanudada'};
   toast(inRange===false? labels[type]+' · fuera del centro' : labels[type]);
   render();
+}
+
+let miniMap = null, miniMapLayer = null;
+async function initMiniMap(empId){
+  const el = document.getElementById('miniMap');
+  if(!el || typeof L==='undefined') return;
+  const emp = db.employees.find(e=>e.id===empId);
+  const center = CENTERS[emp.centro];
+  if(!center) return;
+  if(miniMap){ miniMap.remove(); miniMap=null; }
+  miniMap = L.map('miniMap', {zoomControl:false, attributionControl:false, dragging:false, scrollWheelZoom:false}).setView([center.lat,center.lng], 15);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(miniMap);
+  L.circle([center.lat,center.lng], {radius:center.radius, color:'#3E6284', fillColor:'#3E6284', fillOpacity:0.15}).addTo(miniMap);
+  L.marker([center.lat,center.lng]).addTo(miniMap).bindPopup(emp.centro);
+  const geo = await getGeo();
+  if(geo){
+    const inRange = distMeters(geo.lat,geo.lng,center.lat,center.lng) <= center.radius;
+    L.circleMarker([geo.lat,geo.lng], {radius:7, color: inRange?'#2F8F5B':'#C24B3F', fillColor: inRange?'#2F8F5B':'#C24B3F', fillOpacity:0.9}).addTo(miniMap).bindPopup(inRange?'Estás dentro del centro':'Estás fuera del centro');
+  }
 }
 
 function weekBars(empId){
@@ -249,6 +306,64 @@ function exportMonthlyCSV(){
   URL.revokeObjectURL(url);
 }
 
+let calMonthOffset = 0;
+function navCal(delta){ calMonthOffset += delta; render(); }
+function ausenciasOnDate(dateKey){
+  return db.ausencias.filter(a=>a.estado==='aprobada' && dateKey>=a.desde && dateKey<=a.hasta);
+}
+function buildCalendarHtml(){
+  const base = new Date(); base.setDate(1); base.setMonth(base.getMonth()+calMonthOffset);
+  const year=base.getFullYear(), month=base.getMonth();
+  const first = new Date(year,month,1);
+  const startDow = (first.getDay()+6)%7; // lunes=0
+  const daysInMonth = new Date(year,month+1,0).getDate();
+  const monthLabel = base.toLocaleDateString('es-ES',{month:'long',year:'numeric'});
+  let cells=[];
+  for(let i=0;i<startDow;i++) cells.push('<div></div>');
+  for(let d=1; d<=daysInMonth; d++){
+    const dk = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const auss = ausenciasOnDate(dk);
+    const names = auss.map(a=>{const e=db.employees.find(x=>x.id===a.empId); return e?e.name.split(' ')[0]:'';}).filter(Boolean);
+    cells.push(`<div style="min-height:54px;border:1px solid var(--line);border-radius:6px;padding:4px;font-size:11px;">
+      <div class="mono" style="color:var(--txt-dim);">${d}</div>
+      ${names.slice(0,3).map(n=>`<div style="background:#E8A23A22;color:var(--amber-d);border-radius:4px;padding:1px 4px;margin-top:2px;">${n}</div>`).join('')}
+      ${names.length>3?`<div class="hint">+${names.length-3}</div>`:''}
+    </div>`);
+  }
+  return `<div class="rowflex">
+    <button class="btn-ghost" style="padding:5px 10px;" onclick="navCal(-1)">←</button>
+    <strong style="text-transform:capitalize;">${monthLabel}</strong>
+    <button class="btn-ghost" style="padding:5px 10px;" onclick="navCal(1)">→</button>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-top:10px;">
+    ${['L','M','X','J','V','S','D'].map(d=>`<div class="hint" style="text-align:center;font-weight:700;">${d}</div>`).join('')}
+    ${cells.join('')}
+  </div>`;
+}
+
+function exportMonthlyPDF(){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const mKey = monthKey();
+  doc.setFontSize(16); doc.text('Informe mensual de jornada — '+mKey, 14, 18);
+  doc.setFontSize(10); doc.text('Cumplimiento RDL 8/2019 — control horario', 14, 25);
+  let y = 38;
+  doc.setFontSize(11);
+  doc.text('Empleado', 14, y); doc.text('Centro', 80, y); doc.text('Horas', 130, y); doc.text('Firma', 155, y);
+  y+=4; doc.line(14,y,196,y); y+=6;
+  db.employees.forEach(e=>{
+    if(y>270){ doc.addPage(); y=20; }
+    const h = hoursForMonth(e.id, mKey);
+    const sig = isSigned(e.id, mKey);
+    doc.text(e.name, 14, y);
+    doc.text(e.centro||'-', 80, y);
+    doc.text(fmtDur(h), 130, y);
+    doc.text(sig? new Date(sig.ts).toLocaleDateString('es-ES') : 'Sin firmar', 155, y);
+    y+=7;
+  });
+  doc.save(`informe_${mKey}.pdf`);
+}
+
 function weekDates(){
   const now=new Date(); const dow=(now.getDay()+6)%7;
   const monday=new Date(now); monday.setDate(now.getDate()-dow);
@@ -276,11 +391,56 @@ function updateAusenciaEstado(id, estado){
   a.estado=estado; save(); toast(estado==='aprobada'?'Ausencia aprobada':'Ausencia rechazada'); render();
 }
 
+let corrEmp = null, corrDate = todayKey();
+function setCorrEmp(v){ corrEmp=v; render(); }
+function setCorrDate(v){ corrDate=v; render(); }
+function updateRecordTime(recId, timeStr){
+  const r = db.records.find(x=>x.id===recId); if(!r||!timeStr) return;
+  const [h,m] = timeStr.split(':').map(Number);
+  const d = new Date(r.ts); d.setHours(h,m,0,0);
+  r.ts = d.getTime();
+  save(); toast('Fichaje corregido'); render();
+}
+function deleteRecord(recId){
+  if(!confirm('¿Eliminar este fichaje?')) return;
+  db.records = db.records.filter(r=>r.id!==recId);
+  save(); toast('Fichaje eliminado'); render();
+}
+function addManualRecord(empId, dateKey){
+  const type = document.getElementById('corrTipo').value;
+  const timeStr = document.getElementById('corrHora').value;
+  if(!timeStr){ toast('Indica una hora'); return; }
+  const [h,m] = timeStr.split(':').map(Number);
+  const d = new Date(dateKey+'T00:00:00'); d.setHours(h,m,0,0);
+  db.records.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,6), empId, type, ts:d.getTime(), inRange:null, manual:true});
+  save(); toast('Fichaje añadido'); render();
+}
+
+function horasConvenio(centro){ return (db.centrosConfig && db.centrosConfig[centro]) || 40; }
 function weekTotalMs(empId){
   return weekDates().reduce((s,d)=>{const dk=todayKey(d.getTime()); return s+(recordsFor(empId,dk).length?hoursWorked(empId,dk):0);},0);
 }
-function extraWeekMs(empId){ return Math.max(0, weekTotalMs(empId) - 40*3600000); }
+function extraWeekMs(empId){
+  const emp=db.employees.find(e=>e.id===empId);
+  const target=horasConvenio(emp?emp.centro:null)*3600000;
+  return Math.max(0, weekTotalMs(empId) - target);
+}
+function setCentroHoras(centro, val){
+  db.centrosConfig[centro] = parseFloat(val)||40;
+  save(); render();
+}
 function bolsaTotal(empId){ return extraWeekMs(empId) + (db.bolsa[empId]||0); }
+function vacacionesTotal(empId){ return (db.vacacionesConfig&&db.vacacionesConfig[empId]) ?? 22; }
+function setVacacionesTotal(empId, val){
+  db.vacacionesConfig[empId] = parseInt(val)||0;
+  save(); render();
+}
+function diasVacacionesConsumidos(empId){
+  const year=new Date().getFullYear();
+  return db.ausencias.filter(a=>a.empId===empId && a.estado==='aprobada' && a.tipo==='Vacaciones' && a.desde.slice(0,4)===String(year))
+    .reduce((s,a)=>{ const d1=new Date(a.desde), d2=new Date(a.hasta); return s + Math.max(1, Math.round((d2-d1)/86400000)+1); },0);
+}
+
 function ajustarBolsa(empId, deltaHoras){
   db.bolsa[empId] = (db.bolsa[empId]||0) + deltaHoras*3600000;
   save(); render();
@@ -343,6 +503,8 @@ function employeeView(empId){
     <div class="datestr">${fmtDate(Date.now())}</div>
     <div class="status-pill ${statusClass}"><span class="dot"></span>${statusLabel} · ${fmtDur(worked)} hoy</div>
     <div class="actions">${actionsHtml}</div>
+    <div id="miniMap" style="width:100%;height:140px;border-radius:10px;margin-top:16px;overflow:hidden;"></div>
+    <div class="hint" style="margin-top:6px;">Tu ubicación respecto a ${db.employees.find(e=>e.id===empId)?.centro||'tu centro'}</div>
   </div>
   <div class="card">
     <h3 class="section">Esta semana</h3>
@@ -368,8 +530,15 @@ function employeeView(empId){
   </div>
   <div class="card">
     <div class="rowflex">
-      <div><h3 class="section" style="margin-bottom:2px;">Bolsa de horas extra</h3><div class="hint">Estándar 40h/semana · esta semana: ${fmtDur(weekTotalMs(empId))}</div></div>
+      <div><h3 class="section" style="margin-bottom:2px;">Bolsa de horas extra</h3><div class="hint">Convenio ${horasConvenio(db.employees.find(e=>e.id===empId)?.centro)}h/semana · esta semana: ${fmtDur(weekTotalMs(empId))}</div></div>
       <div class="bignum mono" style="font-size:26px;">${fmtDur(bolsaTotal(empId))}</div>
+    </div>
+  </div>
+  <div class="card">
+    <h3 class="section">Tus vacaciones ${new Date().getFullYear()}</h3>
+    <div class="rowflex">
+      <span class="hint">Asignadas: ${vacacionesTotal(empId)} · Consumidas: ${diasVacacionesConsumidos(empId)}</span>
+      <div class="bignum mono" style="font-size:22px;">${Math.max(0,vacacionesTotal(empId)-diasVacacionesConsumidos(empId))} días</div>
     </div>
   </div>
   <div class="card">
@@ -431,10 +600,70 @@ function adminView(){
     </div>
   </div>
   <div class="card scroll-x">
+    <h3 class="section">Calendario de ausencias del equipo</h3>
+    ${buildCalendarHtml()}
+  </div>
+  <div class="card">
+    <h3 class="section">Corrección de fichajes</h3>
+    <div class="rowflex" style="gap:8px;">
+      <select onchange="setCorrEmp(this.value)" style="flex:1;min-width:150px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+        <option value="">Selecciona empleado…</option>
+        ${db.employees.map(e=>`<option value="${e.id}" ${corrEmp===e.id?'selected':''}>${e.name}</option>`).join('')}
+      </select>
+      <input type="date" value="${corrDate}" onchange="setCorrDate(this.value)" style="flex:1;min-width:150px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+    </div>
+    ${corrEmp? `
+      <div style="margin-top:12px;">
+        ${db.records.filter(r=>r.empId===corrEmp && todayKey(r.ts)===corrDate).sort((a,b)=>a.ts-b.ts).map(r=>`
+          <div class="log-row">
+            <span class="log-type tag-${r.type==='reanuda'?'entrada':r.type}">${({entrada:'Entrada',salida:'Salida',pausa:'Pausa',reanuda:'Reanuda'})[r.type]}</span>
+            <input type="time" value="${fmtTime(r.ts).length===5?fmtTime(r.ts):''}" onchange="updateRecordTime('${r.id}',this.value)" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px;">
+            <button class="btn-out" style="padding:4px 9px;font-size:12px;" onclick="deleteRecord('${r.id}')">Eliminar</button>
+          </div>`).join('') || '<div class="hint">Sin fichajes ese día.</div>'}
+        <div class="rowflex" style="gap:6px;margin-top:10px;">
+          <select id="corrTipo" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px;">
+            <option value="entrada">Entrada</option><option value="pausa">Pausa</option><option value="reanuda">Reanuda</option><option value="salida">Salida</option>
+          </select>
+          <input id="corrHora" type="time" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:6px;">
+          <button class="btn-steel" style="padding:6px 12px;font-size:13px;" onclick="addManualRecord('${corrEmp}','${corrDate}')">Añadir fichaje</button>
+        </div>
+      </div>` : '<div class="hint" style="margin-top:10px;">Elige un empleado para ver y corregir sus fichajes.</div>'}
+  </div>
+  <div class="card">
+    <h3 class="section">Horas de convenio por centro</h3>
+    ${Object.keys(CENTERS).map(c=>`<div class="log-row"><span>${c}</span>
+      <span style="display:flex;gap:6px;align-items:center;">
+        <input type="number" value="${horasConvenio(c)}" onchange="setCentroHoras('${c}',this.value)" style="width:60px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px;">
+        <span class="hint">h/semana</span>
+      </span></div>`).join('')}
+  </div>
+  <div class="card scroll-x">
+    <h3 class="section">Vacaciones anuales</h3>
+    <table>
+      <tr><th>Empleado</th><th>Asignadas</th><th>Consumidas</th><th>Restantes</th></tr>
+      ${db.employees.map(e=>{const tot=vacacionesTotal(e.id); const cons=diasVacacionesConsumidos(e.id);
+        return `<tr><td>${e.name}</td>
+          <td><input type="number" value="${tot}" onchange="setVacacionesTotal('${e.id}',this.value)" style="width:55px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px;"></td>
+          <td class="mono">${cons}</td><td class="mono">${Math.max(0,tot-cons)}</td></tr>`;}).join('')}
+    </table>
+  </div>
+  <div class="card scroll-x">
     <table>
       <tr><th>Empleado</th><th>Centro</th><th>Estado</th><th>Horas hoy</th></tr>
       ${rows.map(r=>`<tr><td>${r.e.name}</td><td class="hint">${r.e.centro}</td><td>${r.badge}</td><td class="mono">${fmtDur(r.worked)}</td></tr>`).join('')}
     </table>
+  </div>
+  <div class="card">
+    <h3 class="section">Empleados</h3>
+    <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:12px;">
+      <input id="empNombre" placeholder="Nombre y apellidos" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+      <select id="empCentro" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+        ${Object.keys(CENTERS).map(c=>`<option value="${c}">${c}</option>`).join('')}
+      </select>
+      <input id="empPuesto" placeholder="Puesto" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+      <button class="btn-steel" onclick="addEmpleado()">Añadir empleado</button>
+    </div>
+    ${db.employees.map(e=>`<div class="log-row"><span>${e.name} <span class="hint">· ${e.centro}</span></span><button class="btn-out" style="padding:5px 10px;font-size:12px;" onclick="quitarEmpleado('${e.id}')">Eliminar</button></div>`).join('')}
   </div>
   <div class="card">
     <h3 class="section">Tablón de avisos</h3>
@@ -514,7 +743,10 @@ function adminView(){
   <div class="card scroll-x">
     <div class="rowflex">
       <h3 class="section" style="margin:0;">Informe mensual — cumplimiento RDL 8/2019</h3>
-      <button class="btn-ghost" onclick="exportMonthlyCSV()">Exportar informe</button>
+      <span style="display:flex;gap:6px;">
+        <button class="btn-ghost" onclick="exportMonthlyCSV()">CSV</button>
+        <button class="btn-steel" onclick="exportMonthlyPDF()">PDF</button>
+      </span>
     </div>
     <table style="margin-top:10px;">
       <tr><th>Empleado</th><th>Horas del mes</th><th>Firma</th></tr>
@@ -533,6 +765,36 @@ function adminView(){
   </div>`;
 }
 
+function addEmpleado(){
+  const nombre=(document.getElementById('empNombre').value||'').trim();
+  const centro=document.getElementById('empCentro').value;
+  const puesto=(document.getElementById('empPuesto').value||'').trim();
+  if(!nombre){ toast('Escribe un nombre'); return; }
+  const id='e'+Date.now()+Math.random().toString(36).slice(2,5);
+  db.employees.push({id, name:nombre, centro, puesto:puesto||'—', alta:todayKey()});
+  save();
+  const o=document.createElement('option'); o.value=id; o.textContent=nombre; userSel.appendChild(o);
+  document.getElementById('empNombre').value=''; document.getElementById('empPuesto').value='';
+  toast('Empleado añadido');
+  render();
+}
+function quitarEmpleado(empId){
+  if(db.employees.length<=1){ toast('Debe quedar al menos un empleado'); return; }
+  if(!confirm('¿Eliminar este empleado y todo su historial de fichajes?')) return;
+  db.employees = db.employees.filter(e=>e.id!==empId);
+  db.records = db.records.filter(r=>r.empId!==empId);
+  db.signatures = db.signatures.filter(s=>s.empId!==empId);
+  db.ausencias = db.ausencias.filter(a=>a.empId!==empId);
+  db.documentos = db.documentos.filter(d=>d.empId!==empId);
+  db.gastos = db.gastos.filter(g=>g.empId!==empId);
+  delete db.bolsa[empId];
+  save();
+  if(currentUser===empId) currentUser = db.employees[0].id;
+  Array.from(userSel.options).find(o=>o.value===empId)?.remove();
+  toast('Empleado eliminado');
+  render();
+}
+
 function exportCSV(){
   let csv='Empleado,Tipo,Fecha,Hora\n';
   db.records.slice().sort((a,b)=>a.ts-b.ts).forEach(r=>{
@@ -547,6 +809,7 @@ function exportCSV(){
 
 function render(){
   document.getElementById('app').innerHTML = role==='admin'? adminView() : employeeView(currentUser);
+  if(role!=='admin') setTimeout(()=>initMiniMap(currentUser), 30);
 }
 setInterval(()=>{
   const el=document.getElementById('liveClock');
