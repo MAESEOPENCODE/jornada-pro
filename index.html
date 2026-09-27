@@ -132,12 +132,7 @@ window.ICONS3D = {
 <script>
 const DB_KEY='jornada_db_v1';
 // Coordenadas del centro (demo: Palma del Río, Córdoba). Sustituye por las reales de cada nave.
-const CENTERS = {
-  'Almacén Palma del Río': {lat:37.6386,lng:-5.2865,radius:350},
-  'Cámara frío':           {lat:37.6386,lng:-5.2865,radius:350},
-  'Expediciones':          {lat:37.6386,lng:-5.2865,radius:350},
-  'Oficina logística':     {lat:37.6386,lng:-5.2865,radius:350},
-};
+// Los centros de trabajo ya no vienen predefinidos: se crean desde el panel de administrador (db.centros).
 function distMeters(lat1,lng1,lat2,lng2){
   const R=6371000, toRad=x=>x*Math.PI/180;
   const dLat=toRad(lat2-lat1), dLng=toRad(lng2-lng1);
@@ -170,6 +165,7 @@ const seed = ()=>({
   avisos:[],
   gastos:[],
   centrosConfig:{},
+  centros:{},
   vacacionesConfig:{}
 });
 let db = JSON.parse(localStorage.getItem(DB_KEY)||'null') || seed();
@@ -181,17 +177,18 @@ if(!db.documentos) db.documentos=[];
 if(!db.avisos) db.avisos=[];
 if(!db.gastos) db.gastos=[];
 if(!db.centrosConfig) db.centrosConfig={};
+if(!db.centros) db.centros={};
 if(!db.vacacionesConfig) db.vacacionesConfig={};
 const save = ()=>{ localStorage.setItem(DB_KEY, JSON.stringify(db)); if(window._jCloudSave) window._jCloudSave(db); };
 save();
 window._jGetDb = ()=>db;
 window._jSaveNow = ()=>save();
-window._jGetCenters = ()=>CENTERS;
+window._jGetCenters = ()=>db.centros;
 window._jSetDb = (nd)=>{
   db = nd;
   if(!db.signatures) db.signatures=[]; if(!db.ausencias) db.ausencias=[]; if(!db.turnos) db.turnos={};
   if(!db.bolsa) db.bolsa={}; if(!db.documentos) db.documentos=[]; if(!db.avisos) db.avisos=[]; if(!db.gastos) db.gastos=[];
-  if(!db.centrosConfig) db.centrosConfig={}; if(!db.vacacionesConfig) db.vacacionesConfig={};
+  if(!db.centrosConfig) db.centrosConfig={}; if(!db.vacacionesConfig) db.vacacionesConfig={}; if(!db.centros) db.centros={};
   render();
 };
 
@@ -311,7 +308,7 @@ setInterval(()=>{
 
 async function clock(empId,type){
   const emp = db.employees.find(e=>e.id===empId);
-  const center = CENTERS[emp.centro];
+  const center = db.centros[emp.centro];
   const geo = await getGeo();
   let inRange = null;
   if(geo && center){
@@ -333,7 +330,7 @@ async function initMiniMap(empId){
   const el = document.getElementById('miniMap');
   if(!el || typeof L==='undefined') return;
   const emp = db.employees.find(e=>e.id===empId);
-  const center = CENTERS[emp.centro];
+  const center = db.centros[emp.centro];
   if(!center) return;
   if(miniMap){ miniMap.remove(); miniMap=null; }
   miniMap = L.map('miniMap', {zoomControl:false, attributionControl:false, dragging:false, scrollWheelZoom:false}).setView([center.lat,center.lng], 15);
@@ -577,6 +574,41 @@ function setCentroHoras(centro, val){
   db.centrosConfig[centro] = parseFloat(val)||40;
   save(); render();
 }
+function addCentro(){
+  const nombre=(document.getElementById('centroNombre').value||'').trim();
+  const lat=parseFloat(document.getElementById('centroLat').value);
+  const lng=parseFloat(document.getElementById('centroLng').value);
+  const radius=parseInt(document.getElementById('centroRadio').value)||300;
+  if(!nombre){ toast('Escribe un nombre para el centro'); return; }
+  if(db.centros[nombre]){ toast('Ya existe un centro con ese nombre'); return; }
+  if(isNaN(lat)||isNaN(lng)){ toast('Indica latitud y longitud (o usa "Usar mi ubicación actual")'); return; }
+  db.centros[nombre] = {lat, lng, radius};
+  save();
+  document.getElementById('centroNombre').value='';
+  document.getElementById('centroLat').value='';
+  document.getElementById('centroLng').value='';
+  document.getElementById('centroRadio').value='300';
+  toast('Centro añadido');
+  render();
+}
+function quitarCentro(nombre){
+  window.jConfirm('¿Eliminar el centro "'+nombre+'"? Los empleados asignados a él se quedarán sin centro.').then(ok=>{
+    if(!ok) return;
+    delete db.centros[nombre];
+    delete db.centrosConfig[nombre];
+    db.employees.forEach(e=>{ if(e.centro===nombre) e.centro=''; });
+    save(); toast('Centro eliminado'); render();
+  });
+}
+function usarMiUbicacion(){
+  if(!navigator.geolocation){ toast('Tu navegador no soporta geolocalización'); return; }
+  toast('Obteniendo tu ubicación…');
+  navigator.geolocation.getCurrentPosition(pos=>{
+    document.getElementById('centroLat').value = pos.coords.latitude.toFixed(6);
+    document.getElementById('centroLng').value = pos.coords.longitude.toFixed(6);
+    toast('Ubicación obtenida, revisa y añade el centro');
+  }, err=>{ toast('No se pudo obtener la ubicación: '+err.message); }, {enableHighAccuracy:true});
+}
 function bolsaTotal(empId){ return extraWeekMs(empId) + (db.bolsa[empId]||0); }
 function vacacionesTotal(empId){ return (db.vacacionesConfig&&db.vacacionesConfig[empId]) ?? 22; }
 function setVacacionesTotal(empId, val){
@@ -778,12 +810,27 @@ function adminView(){
       </div>` : '<div class="hint" style="margin-top:10px;">Elige un empleado para ver y corregir sus fichajes.</div>'}
   </div>
   <div class="card">
-    <h3 class="section"><img class="sec-icon" src="${ICONS3D.ajustes}">Horas de convenio por centro</h3>
-    ${Object.keys(CENTERS).map(c=>`<div class="log-row"><span>${c}</span>
-      <span style="display:flex;gap:6px;align-items:center;">
-        <input type="number" value="${horasConvenio(c)}" onchange="setCentroHoras('${c}',this.value)" style="width:60px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px;">
-        <span class="hint">h/semana</span>
-      </span></div>`).join('')}
+    <h3 class="section"><img class="sec-icon" src="${ICONS3D.ubicacion}">Centros de trabajo</h3>
+    <div class="hint" style="margin-bottom:10px;">Da de alta cada nave/oficina con su ubicación GPS (para el fichaje por geolocalización) y sus horas de convenio semanales.</div>
+    ${Object.keys(db.centros).length? Object.keys(db.centros).map(c=>{const info=db.centros[c];
+      return `<div class="log-row" style="align-items:flex-start;">
+        <span>${c}<br><span class="hint">${info.lat.toFixed(5)}, ${info.lng.toFixed(5)} · radio ${info.radius} m</span></span>
+        <span style="display:flex;gap:6px;align-items:center;">
+          <input type="number" value="${horasConvenio(c)}" onchange="setCentroHoras('${c}',this.value)" style="width:55px;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:6px;padding:4px;">
+          <span class="hint">h/sem</span>
+          <button class="btn-out" style="padding:5px 10px;font-size:12px;" onclick="quitarCentro('${c}')">Eliminar</button>
+        </span>
+      </div>`;}).join('') : '<div class="hint" style="margin-bottom:10px;">Todavía no hay ningún centro creado.</div>'}
+    <div style="display:flex;flex-direction:column;gap:6px;margin-top:12px;">
+      <input id="centroNombre" placeholder="Nombre del centro (p. ej. Almacén Palma del Río)" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+      <div class="rowflex" style="gap:6px;">
+        <input id="centroLat" type="number" step="0.00001" placeholder="Latitud" style="flex:1;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+        <input id="centroLng" type="number" step="0.00001" placeholder="Longitud" style="flex:1;background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+      </div>
+      <input id="centroRadio" type="number" value="300" placeholder="Radio en metros" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
+      <button class="btn-steel" onclick="addCentro()">Añadir centro</button>
+      <button class="btn-ghost" onclick="usarMiUbicacion()">Usar mi ubicación actual</button>
+    </div>
   </div>
   <div class="card scroll-x">
     <h3 class="section"><img class="sec-icon" src="${ICONS3D.calendario}">Vacaciones anuales</h3>
@@ -807,7 +854,7 @@ function adminView(){
     <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px;">
       <input id="empNombre" placeholder="Nombre y apellidos" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
       <select id="empCentro" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
-        ${Object.keys(CENTERS).map(c=>`<option value="${c}">${c}</option>`).join('')}
+        ${Object.keys(db.centros).length? Object.keys(db.centros).map(c=>`<option value="${c}">${c}</option>`).join('') : '<option value="">Crea primero un centro de trabajo ↑</option>'}
       </select>
       <input id="empPuesto" placeholder="Puesto" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
       <input id="empEmail" type="email" placeholder="Email de acceso" style="background:var(--paper);color:var(--txt);border:1px solid var(--line);border-radius:8px;padding:8px;">
@@ -816,7 +863,7 @@ function adminView(){
       <button class="btn-steel" onclick="addEmpleado()">Añadir empleado y crear acceso</button>
     </div>
     ${db.employees.map(e=>`<div class="log-row">
-        <span>${e.name} <span class="hint">· ${e.centro}${e.email?' · '+e.email:''}</span></span>
+        <span>${e.name} <span class="hint">· ${e.centro||'sin centro'}${e.email?' · '+e.email:''}</span></span>
         <span style="display:flex;gap:6px;align-items:center;">
           ${e.authUid?`<label class="hint" style="display:flex;align-items:center;gap:4px;"><input type="checkbox" ${e.admin?'checked':''} onchange="toggleAdmin('${e.id}',this.checked)"> Admin</label>`:'<span class="hint">Sin acceso creado</span>'}
           <button class="btn-out" style="padding:5px 10px;font-size:12px;" onclick="quitarEmpleado('${e.id}')">Eliminar</button>
@@ -931,6 +978,7 @@ async function addEmpleado(){
   const pass=document.getElementById('empPass').value||'';
   const admin=document.getElementById('empAdmin').checked;
   if(!nombre){ toast('Escribe un nombre'); return; }
+  if(!centro){ toast('Crea primero un centro de trabajo'); return; }
   if(!email || !pass || pass.length<6){ toast('Email y contraseña (mín. 6 caracteres) son obligatorios'); return; }
   if(!window._jCreateAuthUser){ toast('La conexión con Firebase todavía no está lista, espera un momento'); return; }
   const id='e'+Date.now()+Math.random().toString(36).slice(2,5);
