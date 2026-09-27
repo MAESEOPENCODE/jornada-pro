@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{
   --ink:#16232F; --steel:#2E4A63; --steel-2:#3E6284; --amber:#E8A23A; --amber-d:#C6841F;
@@ -100,6 +101,16 @@ footer{text-align:center;color:var(--txt-dim);font-size:12px;padding:10px 20px 3
 <main id="app"></main>
 <footer>Demo local — los datos se guardan solo en este navegador.</footer>
 <div class="toast" id="toast"></div>
+<div id="jModal" style="position:fixed;inset:0;z-index:1000;background:rgba(10,16,22,.55);display:none;align-items:center;justify-content:center;padding:20px;">
+  <div class="card" style="max-width:340px;width:100%;margin:0;">
+    <div id="jModalMsg" style="font-size:15px;line-height:1.4;margin-bottom:16px;white-space:pre-wrap;"></div>
+    <input id="jModalInput" style="display:none;width:100%;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--mist);color:var(--txt);margin-bottom:14px;font-size:15px;">
+    <div style="display:flex;gap:10px;justify-content:flex-end;">
+      <button id="jModalCancel" class="btn-ghost" style="display:none;">Cancelar</button>
+      <button id="jModalOk" class="btn-steel">Aceptar</button>
+    </div>
+  </div>
+</div>
 
 <script>
 window.ICONS3D = {
@@ -220,6 +231,35 @@ window._jApplyAccessForUser = applyAccessForUser;
 window._jGetMyEmpId = ()=>myEmpId;
 
 function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),1800);}
+
+function _jModalShow({msg, showInput=false, showCancel=false, defaultValue=''}){
+  return new Promise(resolve=>{
+    const modal=document.getElementById('jModal');
+    const msgEl=document.getElementById('jModalMsg');
+    const inputEl=document.getElementById('jModalInput');
+    const okBtn=document.getElementById('jModalOk');
+    const cancelBtn=document.getElementById('jModalCancel');
+    msgEl.textContent = msg;
+    inputEl.style.display = showInput? 'block':'none';
+    inputEl.value = defaultValue||'';
+    cancelBtn.style.display = showCancel? 'inline-block':'none';
+    modal.style.display='flex';
+    function cleanup(result){
+      modal.style.display='none';
+      okBtn.onclick=null; cancelBtn.onclick=null; inputEl.onkeydown=null;
+      resolve(result);
+    }
+    okBtn.onclick=()=>cleanup(showInput ? (inputEl.value||null) : true);
+    cancelBtn.onclick=()=>cleanup(showInput? null : false);
+    if(showInput){
+      setTimeout(()=>inputEl.focus(),50);
+      inputEl.onkeydown=(e)=>{ if(e.key==='Enter') cleanup(inputEl.value||null); };
+    }
+  });
+}
+window.jConfirm = (msg)=>_jModalShow({msg, showCancel:true});
+window.jAlert = (msg)=>_jModalShow({msg, showCancel:false}).then(()=>{});
+window.jPrompt = (msg, def)=>_jModalShow({msg, showInput:true, showCancel:true, defaultValue:def});
 function fmtTime(ts){return new Date(ts).toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});}
 function fmtDate(ts){return new Date(ts).toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});}
 function todayKey(ts=Date.now()){return new Date(ts).toISOString().slice(0,10);}
@@ -278,7 +318,7 @@ async function clock(empId,type){
     inRange = distMeters(geo.lat,geo.lng,center.lat,center.lng) <= center.radius;
   }
   if(inRange===false){
-    const seguir = confirm('Pareces estar fuera de tu centro de trabajo ('+emp.centro+'). ¿Fichar de todas formas?');
+    const seguir = await window.jConfirm('Pareces estar fuera de tu centro de trabajo ('+emp.centro+'). ¿Fichar de todas formas?');
     if(!seguir) return;
   }
   db.records.push({id:'r'+Date.now()+Math.random().toString(36).slice(2,6), empId, type, ts:Date.now(), inRange});
@@ -394,24 +434,80 @@ function buildCalendarHtml(){
 
 function exportMonthlyPDF(){
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
+  const doc = new jsPDF({ unit:'mm', format:'a4' });
   const mKey = monthKey();
-  doc.setFontSize(16); doc.text('Informe mensual de jornada — '+mKey, 14, 18);
-  doc.setFontSize(10); doc.text('Cumplimiento RDL 8/2019 — control horario', 14, 25);
-  let y = 38;
-  doc.setFontSize(11);
-  doc.text('Empleado', 14, y); doc.text('Centro', 80, y); doc.text('Horas', 130, y); doc.text('Firma', 155, y);
-  y+=4; doc.line(14,y,196,y); y+=6;
-  db.employees.forEach(e=>{
-    if(y>270){ doc.addPage(); y=20; }
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const monthLabel = new Date(mKey+'-01T00:00:00').toLocaleDateString('es-ES',{month:'long',year:'numeric'});
+  const INK=[22,35,47], STEEL=[46,74,99], AMBER=[232,162,58], MIST=[238,242,245];
+
+  function drawHeader(){
+    doc.setFillColor(...INK);
+    doc.rect(0,0,pageW,30,'F');
+    doc.setFillColor(...AMBER);
+    doc.rect(0,30,pageW,1.4,'F');
+    doc.setTextColor(255,255,255);
+    doc.setFont('helvetica','bold'); doc.setFontSize(17);
+    doc.text('SAT GUADEX · Jornada', 12, 14);
+    doc.setFont('helvetica','normal'); doc.setFontSize(10.5);
+    doc.text('Informe mensual de control horario', 12, 21);
+    doc.setFontSize(10);
+    doc.text(monthLabel.charAt(0).toUpperCase()+monthLabel.slice(1), pageW-12, 14, {align:'right'});
+    doc.setFontSize(8.5); doc.setTextColor(220,225,230);
+    doc.text('Cumplimiento RDL 8/2019 — registro de jornada', pageW-12, 21, {align:'right'});
+  }
+  function drawFooter(){
+    const n = doc.internal.getNumberOfPages();
+    for(let i=1;i<=n;i++){
+      doc.setPage(i);
+      doc.setDrawColor(...MIST); doc.setLineWidth(0.3);
+      doc.line(12, pageH-14, pageW-12, pageH-14);
+      doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(120,130,140);
+      doc.text('Generado el '+new Date().toLocaleDateString('es-ES')+' por Jornada — SAT GUADEX', 12, pageH-9);
+      doc.text('Página '+i+' de '+n, pageW-12, pageH-9, {align:'right'});
+    }
+  }
+
+  drawHeader();
+
+  const rows = db.employees.map(e=>{
     const h = hoursForMonth(e.id, mKey);
     const sig = isSigned(e.id, mKey);
-    doc.text(e.name, 14, y);
-    doc.text(e.centro||'-', 80, y);
-    doc.text(fmtDur(h), 130, y);
-    doc.text(sig? new Date(sig.ts).toLocaleDateString('es-ES') : 'Sin firmar', 155, y);
-    y+=7;
+    return [e.name, e.centro||'—', fmtDur(h), sig? new Date(sig.ts).toLocaleDateString('es-ES') : 'Sin firmar'];
   });
+
+  doc.autoTable({
+    head: [['Empleado','Centro','Horas del mes','Firma']],
+    body: rows,
+    startY: 38,
+    margin: {left:12, right:12, bottom:20},
+    tableWidth: pageW-24,
+    styles: { font:'helvetica', fontSize:10, cellPadding:4, lineColor:MIST, lineWidth:0.2, textColor:INK },
+    headStyles: { fillColor:STEEL, textColor:255, fontStyle:'bold', halign:'left' },
+    alternateRowStyles: { fillColor: [247,249,250] },
+    columnStyles: {
+      0:{cellWidth:'auto'}, 1:{cellWidth:'auto'},
+      2:{cellWidth:32, halign:'right'}, 3:{cellWidth:36, halign:'right'}
+    },
+    didParseCell: (data)=>{
+      if(data.section==='body' && data.column.index===3 && data.cell.raw==='Sin firmar'){
+        data.cell.styles.textColor = [194,75,63];
+      }
+    },
+    didDrawPage: drawHeader
+  });
+
+  let y = (doc.lastAutoTable ? doc.lastAutoTable.finalY : 38) + 12;
+  if(y > pageH-40){ doc.addPage(); drawHeader(); y = 42; }
+  doc.setDrawColor(...MIST);
+  doc.setFillColor(...MIST);
+  doc.roundedRect(12, y, pageW-24, 22, 2, 2, 'F');
+  doc.setTextColor(...INK); doc.setFont('helvetica','bold'); doc.setFontSize(10);
+  doc.text('Total empleados: '+db.employees.length, 18, y+9);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(90,100,110);
+  doc.text('Este informe recoge las horas trabajadas y el estado de la firma mensual de cada empleado.', 18, y+16);
+
+  drawFooter();
   doc.save(`informe_${mKey}.pdf`);
 }
 
@@ -452,8 +548,9 @@ function updateRecordTime(recId, timeStr){
   r.ts = d.getTime();
   save(); toast('Fichaje corregido'); render();
 }
-function deleteRecord(recId){
-  if(!confirm('¿Eliminar este fichaje?')) return;
+async function deleteRecord(recId){
+  const ok = await window.jConfirm('¿Eliminar este fichaje?');
+  if(!ok) return;
   db.records = db.records.filter(r=>r.id!==recId);
   save(); toast('Fichaje eliminado'); render();
 }
@@ -856,19 +953,21 @@ function toggleAdmin(empId, val){
 }
 function quitarEmpleado(empId){
   if(db.employees.length<=1){ toast('Debe quedar al menos un empleado'); return; }
-  if(!confirm('¿Eliminar este empleado y todo su historial de fichajes? (Su acceso de inicio de sesión seguirá existiendo en Firebase, pero quedará sin efecto)')) return;
-  db.employees = db.employees.filter(e=>e.id!==empId);
-  db.records = db.records.filter(r=>r.empId!==empId);
-  db.signatures = db.signatures.filter(s=>s.empId!==empId);
-  db.ausencias = db.ausencias.filter(a=>a.empId!==empId);
-  db.documentos = db.documentos.filter(d=>d.empId!==empId);
-  db.gastos = db.gastos.filter(g=>g.empId!==empId);
-  delete db.bolsa[empId];
-  save();
-  if(currentUser===empId) currentUser = db.employees[0].id;
-  refreshUserSel(); userSel.value = currentUser;
-  toast('Empleado eliminado');
-  render();
+  window.jConfirm('¿Eliminar este empleado y todo su historial de fichajes? Su acceso de inicio de sesión seguirá existiendo en Firebase, pero quedará sin efecto.').then(ok=>{
+    if(!ok) return;
+    db.employees = db.employees.filter(e=>e.id!==empId);
+    db.records = db.records.filter(r=>r.empId!==empId);
+    db.signatures = db.signatures.filter(s=>s.empId!==empId);
+    db.ausencias = db.ausencias.filter(a=>a.empId!==empId);
+    db.documentos = db.documentos.filter(d=>d.empId!==empId);
+    db.gastos = db.gastos.filter(g=>g.empId!==empId);
+    delete db.bolsa[empId];
+    save();
+    if(currentUser===empId) currentUser = db.employees[0].id;
+    refreshUserSel(); userSel.value = currentUser;
+    toast('Empleado eliminado');
+    render();
+  });
 }
 
 function exportCSV(){
@@ -942,9 +1041,9 @@ window._jornadaLogin = async function(){
     const hayAdmin = dbNow.employees && dbNow.employees.some(emp=>emp.admin);
     if(!hayAdmin){
       try{ await createUserWithEmailAndPassword(fauth, email, pass); }
-      catch(e2){ alert('No se pudo crear la cuenta: '+e2.message); }
+      catch(e2){ await window.jAlert('No se pudo crear la cuenta: '+e2.message); }
     } else {
-      alert('Usuario o contraseña incorrectos. Contacta con tu administrador si no tienes acceso.');
+      await window.jAlert('Usuario o contraseña incorrectos. Contacta con tu administrador si no tienes acceso.');
     }
   }
 };
@@ -971,7 +1070,8 @@ onAuthStateChanged(fauth, async user=>{
   });
 });
 
-function handleAuthUser(user){
+let _jBootstrapping = false;
+async function handleAuthUser(user){
   const dbNow = window._jGetDb();
   const yaVinculado = dbNow.employees.find(e=>e.authUid===user.uid);
   const hayAdmin = dbNow.employees.some(e=>e.admin);
@@ -981,8 +1081,10 @@ function handleAuthUser(user){
     return;
   }
   if(!hayAdmin){
+    if(_jBootstrapping) return;
+    _jBootstrapping = true;
     // Primer arranque: esta cuenta se convierte en la administradora inicial
-    const nombre = (prompt('Bienvenido. Escribe tu nombre y apellidos para crear tu perfil de administrador:')||'Administrador').trim();
+    const nombre = ((await window.jPrompt('Bienvenido. Escribe tu nombre y apellidos para crear tu perfil de administrador:'))||'Administrador').trim();
     const centro = Object.keys(window._jGetCenters?window._jGetCenters():{})[0] || dbNow.employees[0]?.centro || '';
     const id = 'e'+Date.now()+Math.random().toString(36).slice(2,5);
     dbNow.employees.push({id, name:nombre, centro, puesto:'Administrador', alta:new Date().toISOString().slice(0,10), email:user.email, authUid:user.uid, admin:true});
@@ -990,8 +1092,9 @@ function handleAuthUser(user){
     window._jSaveNow();
     window._jApplyAccessForUser(user.uid);
     if(typeof window.render==='function') window.render();
+    _jBootstrapping = false;
   } else {
-    alert('Tu cuenta no está vinculada a ningún empleado todavía. Pide a tu administrador que te dé de alta desde el panel de Empleados.');
+    await window.jAlert('Tu cuenta no está vinculada a ningún empleado todavía. Pide a tu administrador que te dé de alta desde el panel de Empleados.');
     signOut(fauth);
   }
 }
